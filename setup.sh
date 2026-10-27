@@ -160,8 +160,33 @@ log="/tmp/oc-agent/$(date +%Y%m%d-%H%M%S).log"
 cd "$dir" || exit 2
 echo "oc-agent: model=${model[1]:-byok/$BYOK_MODEL} effort=${BYOK_REASONING_EFFORT:-model-default} dir=$dir log=$log" >&2
 
-opencode run "${cont[@]}" "${model[@]}" "$*" 2>&1 | sed -r 's/\x1b\[[0-9;]*[A-Za-z]//g' > "$log"
-rc=${PIPESTATUS[0]}
+# Startup can hang on OpenCode's background models.dev download (6 MB, no timeout) when the
+# network is flaky. Our models are configured explicitly, so skip it. As a safety net, an
+# attempt that hasn't started its agent loop within $OC_AGENT_START_TIMEOUT seconds is
+# killed and retried.
+export OPENCODE_DISABLE_MODELS_FETCH=1 OPENCODE_DISABLE_AUTOUPDATE=1
+start_timeout="${OC_AGENT_START_TIMEOUT:-120}"
+raw="$log.raw" dbg="$log.debug"
+rc=4
+for attempt in 1 2 3; do
+  opencode run --print-logs --log-level INFO "${cont[@]}" "${model[@]}" "$*" >"$raw" 2>"$dbg" </dev/null &
+  pid=$!
+  started=0
+  for _ in $(seq 1 "$start_timeout"); do
+    if grep -q 'message=loop' "$dbg"; then started=1; break; fi
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 1
+  done
+  if [ "$started" = 0 ] && kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null; sleep 2; kill -9 "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+    echo "oc-agent: opencode did not start within ${start_timeout}s (attempt $attempt/3)" >&2
+    continue
+  fi
+  wait "$pid"; rc=$?
+  break
+done
+[ "$rc" != 4 ] || echo "oc-agent: opencode failed to start 3 times; see $dbg" >&2
+{ cat "$raw"; grep -v '^timestamp=' "$dbg"; } | sed -r 's/\x1b\[[0-9;]*[A-Za-z]//g' > "$log"
 
 echo "---- oc-agent exit=$rc, $(wc -l < "$log") log lines, last 80: ----"
 tail -n 80 "$log"
@@ -339,6 +364,10 @@ This session runs on a cheap model on purpose. You are a relay: the real coding 
    `$BYOK_MODEL`, `$BYOK_SMALL_MODEL` and `$BYOK_EXTRA_MODELS` (`echo` of these three is fine, they're not secrets).
    If the user asks for a reasoning level ("推理 high", "用 max", "低推理" ...), add `-e <level>`
    (minimal | low | medium | high | xhigh | max); otherwise leave it out so BYOK_REASONING_EFFORT applies.
+   Don't add your own commit-attribution lines (Co-Authored-By / Claude-Session) to the task text: the
+   commits are made by oc-agent with the user's model, not by you.
+   If oc-agent exits 4 (OpenCode failed to start), run the same command once more; if it fails again,
+   tell the user and quote the last lines of the `.debug` log it names.
    If oc-agent exits 3 (missing BYOK_* variable), tell the user to add it in the environment settings.
 3. Verify cheaply yourself:
    - `git -C /home/user/<repo> fetch -q && git -C /home/user/<repo> log -1 --format='%H %s' origin/<branch>`

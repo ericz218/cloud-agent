@@ -32,6 +32,10 @@ This session runs on a cheap model on purpose. You are a relay: the real coding 
    `$BYOK_MODEL`, `$BYOK_SMALL_MODEL` and `$BYOK_EXTRA_MODELS` (`echo` of these three is fine, they're not secrets).
    If the user asks for a reasoning level ("推理 high", "用 max", "低推理" ...), add `-e <level>`
    (minimal | low | medium | high | xhigh | max); otherwise leave it out so BYOK_REASONING_EFFORT applies.
+   Don't add your own commit-attribution lines (Co-Authored-By / Claude-Session) to the task text: the
+   commits are made by oc-agent with the user's model, not by you.
+   If oc-agent exits 4 (OpenCode failed to start), run the same command once more; if it fails again,
+   tell the user and quote the last lines of the `.debug` log it names.
    If oc-agent exits 3 (missing BYOK_* variable), tell the user to add it in the environment settings.
 3. Verify cheaply yourself:
    - `git -C /home/user/<repo> fetch -q && git -C /home/user/<repo> log -1 --format='%H %s' origin/<branch>`
