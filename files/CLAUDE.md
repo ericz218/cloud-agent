@@ -16,6 +16,8 @@ This session runs on a cheap model on purpose. You are a relay: the real coding 
    `oc-agent -d /home/user/<repo> "<the user's request, verbatim, plus any context you know>"`
    Wait for the completion notification; read only the printed tail. For follow-ups in the same
    conversation use `oc-agent -c -d ... "<follow-up>"`.
+   If the user names a model (e.g. "用 spark"), add `-m <model id>`; the configured IDs are in
+   `$BYOK_MODEL`, `$BYOK_SMALL_MODEL` and `$BYOK_EXTRA_MODELS` (`echo` of these three is fine, they're not secrets).
    If oc-agent exits 3 (missing BYOK_* variable), tell the user to add it in the environment settings.
 3. Verify cheaply yourself:
    - `git -C /home/user/<repo> fetch -q && git -C /home/user/<repo> log -1 --format='%H %s' origin/<branch>`
