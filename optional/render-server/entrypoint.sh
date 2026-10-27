@@ -13,7 +13,7 @@ export HOME="$DATA/home"
 export XDG_CONFIG_HOME="$HOME/.config" XDG_DATA_HOME="$HOME/.local/share"
 export XDG_CACHE_HOME="$HOME/.cache" XDG_STATE_HOME="$HOME/.local/state"
 export NPM_CONFIG_PREFIX="$HOME/.npm-global"
-export PATH="/opt/cloud-agent/bin:$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"
+export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"
 export WORKSPACE="$DATA/workspace"
 mkdir -p "$HOME" "$XDG_CONFIG_HOME/opencode" "$XDG_DATA_HOME" "$XDG_CACHE_HOME" \
          "$XDG_STATE_HOME" "$NPM_CONFIG_PREFIX" "$WORKSPACE"
@@ -31,11 +31,11 @@ export NPM_CONFIG_PREFIX="$NPM_CONFIG_PREFIX" WORKSPACE="$WORKSPACE"
 export PATH="$PATH"
 ENV
 grep -q cloud-agent-env "$HOME/.bashrc" 2>/dev/null || echo '. "$HOME/.cloud-agent-env"' >> "$HOME/.bashrc"
-cp -n /opt/cloud-agent/agent/bashrc.example "$HOME/.bashrc.local" 2>/dev/null || true
+cp -n /opt/cloud-agent/server/bashrc.example "$HOME/.bashrc.local" 2>/dev/null || true
 
 # OpenCode: BYOK provider config (no secrets in the file) + global agent rules.
-/opt/cloud-agent/scripts/gen-opencode-config.sh "$XDG_CONFIG_HOME/opencode/opencode.json"
-cp /opt/cloud-agent/agent/AGENTS.md "$XDG_CONFIG_HOME/opencode/AGENTS.md"
+/opt/cloud-agent/gen-opencode-config.sh "$XDG_CONFIG_HOME/opencode/opencode.json"
+cp /opt/cloud-agent/server/AGENTS.md "$XDG_CONFIG_HOME/opencode/AGENTS.md"
 echo "[boot] BYOK provider=${BYOK_PROVIDER:-openai-compatible} model=${BYOK_MODEL}"
 
 # Git + GitHub: the credential helper reads GH_TOKEN from the environment at

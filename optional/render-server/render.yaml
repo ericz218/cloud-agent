@@ -1,3 +1,4 @@
+# OPTIONAL always-on variant (not deployed by default; costs money).
 # Render Blueprint for the cloud coding agent.
 # New → Blueprint → pick this repo. Render asks for every `sync: false` value
 # once and stores it encrypted; nothing secret is kept in this repo.
@@ -5,14 +6,15 @@ services:
   - type: web
     name: cloud-agent
     runtime: docker
-    plan: 1c-2g            # 1 CPU / 2 GB. 0.5c-512mb is too small for npm/pip builds.
+    plan: 0.5c-512mb       # cheapest always-on; use 1c-2g if builds run out of memory
     region: oregon
-    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerfilePath: ./optional/render-server/Dockerfile
     autoDeployTrigger: commit
     disk:
       name: agent-data
       mountPath: /data
-      sizeGB: 10
+      sizeGB: 5
     envVars:
       - key: OPENCODE_SERVER_PASSWORD   # web UI password (user name: opencode)
         generateValue: true

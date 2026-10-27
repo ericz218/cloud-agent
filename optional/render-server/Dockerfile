@@ -3,6 +3,7 @@
 # (see scripts/entrypoint.sh); this image only carries reproducible tooling.
 FROM node:22-bookworm
 
+# keep in sync with files/OPENCODE_VERSION
 ARG OPENCODE_VERSION=1.19.4
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -33,11 +34,12 @@ RUN set -eux; \
     (command -v render || ln -sf "$HOME/.local/bin/render" /usr/local/bin/render); \
     render --version
 
-COPY scripts/ /opt/cloud-agent/scripts/
-COPY bin/ /opt/cloud-agent/bin/
-COPY agent/ /opt/cloud-agent/agent/
-RUN chmod +x /opt/cloud-agent/scripts/* /opt/cloud-agent/bin/*
+# Build context is the repo root (see render.yaml).
+COPY files/gen-opencode-config.sh /opt/cloud-agent/
+COPY files/render-deploy-check /usr/local/bin/
+COPY optional/render-server/entrypoint.sh optional/render-server/AGENTS.md optional/render-server/bashrc.example /opt/cloud-agent/server/
+RUN chmod +x /opt/cloud-agent/gen-opencode-config.sh /usr/local/bin/render-deploy-check /opt/cloud-agent/server/entrypoint.sh
 
 ENV DATA_DIR=/data PORT=10000
 EXPOSE 10000
-ENTRYPOINT ["/usr/bin/tini", "--", "/opt/cloud-agent/scripts/entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/opt/cloud-agent/server/entrypoint.sh"]

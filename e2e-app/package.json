@@ -1,0 +1,12 @@
+{
+  "name": "cloud-agent-e2e-app",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Tiny service used to verify the cloud agent end to end (code -> test -> push -> CI -> Render).",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  }
+}

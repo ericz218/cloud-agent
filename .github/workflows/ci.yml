@@ -1,0 +1,28 @@
+name: CI
+on:
+  push:
+  pull_request:
+jobs:
+  e2e-app:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: e2e-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+  setup-script:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax check
+        run: for f in build-setup.sh setup.sh files/oc-agent files/render-deploy-check files/gen-opencode-config.sh optional/render-server/entrypoint.sh; do bash -n "$f"; done
+      - name: setup.sh is up to date with files/
+        run: ./build-setup.sh && git diff --exit-code setup.sh
+      - name: BYOK config generator
+        run: |
+          BYOK_PROVIDER=openrouter BYOK_MODEL=a/b BYOK_EXTRA_MODELS="c, d" files/gen-opencode-config.sh /tmp/oc.json
+          jq -e '.model == "byok/a/b" and (.provider.byok.models | keys == ["a/b","c","d"]) and .provider.byok.options.apiKey == "{env:BYOK_API_KEY}"' /tmp/oc.json

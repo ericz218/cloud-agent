@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Run a coding task with the BYOK OpenCode agent and print a short result.
+#
+#   oc-agent [-c] [-d DIR] "task description"
+#     -c      continue the previous OpenCode session (follow-up instructions)
+#     -d DIR  working directory (default: current directory)
+#
+# Model/API come from BYOK_PROVIDER, BYOK_BASE_URL, BYOK_MODEL, BYOK_API_KEY.
+# The full transcript goes to /tmp/oc-agent/*.log; only its tail is printed so
+# the calling (relay) model reads as little as possible.
+set -uo pipefail
+
+cont=() dir="$PWD"
+while getopts "cd:h" o; do
+  case "$o" in
+    c) cont=(--continue) ;;
+    d) dir="$OPTARG" ;;
+    *) sed -n '2,10p' "$0"; exit 2 ;;
+  esac
+done
+shift $((OPTIND - 1))
+[ $# -gt 0 ] || { sed -n '2,10p' "$0"; exit 2; }
+
+for v in BYOK_MODEL BYOK_API_KEY; do
+  if [ -z "${!v:-}" ]; then
+    echo "oc-agent: $v is not set. Add it under the cloud environment's settings → Environment variables, then start a new session." >&2
+    exit 3
+  fi
+done
+
+cfg="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.json"
+/opt/cloud-agent/gen-opencode-config.sh "$cfg" || exit 3
+
+mkdir -p /tmp/oc-agent
+log="/tmp/oc-agent/$(date +%Y%m%d-%H%M%S).log"
+cd "$dir" || exit 2
+echo "oc-agent: model=${BYOK_PROVIDER:-openai-compatible}/${BYOK_MODEL} dir=$dir log=$log" >&2
+
+opencode run "${cont[@]}" "$*" 2>&1 | sed -r 's/\x1b\[[0-9;]*[A-Za-z]//g' > "$log"
+rc=${PIPESTATUS[0]}
+
+echo "---- oc-agent exit=$rc, $(wc -l < "$log") log lines, last 80: ----"
+tail -n 80 "$log"
+exit "$rc"
