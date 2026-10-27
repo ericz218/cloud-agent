@@ -25,7 +25,8 @@ This session runs on a cheap model on purpose. You are a relay: the real coding 
    - `gh run list -R <owner/repo> --branch <branch> -L 3` shows CI for that SHA (wait with
      `gh run watch <id> --exit-status` in the background if still running).
    - Render (if the repo deploys there and oc-agent didn't already verify with render-deploy-check): use
-     the Render MCP tools: list_services → the service whose repo/branch match → list_deploys; confirm the
+     the Render MCP tools (if list_workspaces returns exactly one workspace, pass its id as workspaceId
+     without asking the user): list_services → the service whose repo/branch match → list_deploys; confirm the
      newest deploy's commit id equals the pushed SHA and status is `live` (re-check every ~30s while it
      builds); on failure call list_logs for that service and send the error back with `oc-agent -c`.
      Then curl the service URL (health path if any).
