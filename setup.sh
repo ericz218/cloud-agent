@@ -19,6 +19,8 @@ cat > "/opt/cloud-agent/gen-opencode-config.sh" <<'__CLOUD_AGENT_EOF__'
 #   BYOK_MODEL      model ID sent to the API, e.g. claude-sonnet-4-5, gpt-5, deepseek/deepseek-chat
 #   BYOK_SMALL_MODEL   optional cheaper model for titles/summaries (defaults to BYOK_MODEL)
 #   BYOK_EXTRA_MODELS  optional comma-separated extra model IDs selectable in the UI
+#   BYOK_REASONING_EFFORT  optional reasoning level sent with every request, e.g. low | medium | high | xhigh | max
+#                      (openai / openrouter / openai-compatible; ignored for anthropic)
 set -euo pipefail
 
 out="${1:?usage: gen-opencode-config.sh <output.json>}"
@@ -39,6 +41,16 @@ base_url="${BYOK_BASE_URL:-$default_url}"
 
 models_csv="$model,$small${BYOK_EXTRA_MODELS:+,$BYOK_EXTRA_MODELS}"
 
+effort="${BYOK_REASONING_EFFORT:-}"
+model_options='{}'
+if [ -n "$effort" ]; then
+  case "$provider" in
+    anthropic)  echo "gen-opencode-config: BYOK_REASONING_EFFORT is ignored for anthropic" >&2 ;;
+    openrouter) model_options="$(jq -nc --arg e "$effort" '{reasoning: {effort: $e}}')" ;;
+    *)          model_options="$(jq -nc --arg e "$effort" '{reasoningEffort: $e}')" ;;
+  esac
+fi
+
 render_mcp_enabled=false
 [ -n "${RENDER_API_KEY:-}" ] && render_mcp_enabled=true
 
@@ -46,7 +58,7 @@ mkdir -p "$(dirname "$out")"
 jq -n \
   --arg npm "$npm" --arg kind "$provider" --arg url "$base_url" \
   --arg model "$model" --arg small "$small" --arg models "$models_csv" \
-  --argjson render "$render_mcp_enabled" \
+  --argjson render "$render_mcp_enabled" --argjson mopts "$model_options" \
   '{
     "$schema": "https://opencode.ai/config.json",
     autoupdate: false,
@@ -60,7 +72,7 @@ jq -n \
         name: ("BYOK (" + $kind + ")"),
         options: { baseURL: $url, apiKey: "{env:BYOK_API_KEY}" },
         models: ($models | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))
-                 | unique | map({key: ., value: {name: .}}) | from_entries)
+                 | unique | map({key: ., value: ({name: .} + (if $mopts == {} then {} else {options: $mopts} end))}) | from_entries)
       }
     },
     permission: {
@@ -85,9 +97,10 @@ cat > "/usr/local/bin/oc-agent" <<'__CLOUD_AGENT_EOF__'
 #!/usr/bin/env bash
 # Run a coding task with the BYOK OpenCode agent and print a short result.
 #
-#   oc-agent [-c] [-m MODEL] [-d DIR] "task description"
+#   oc-agent [-c] [-m MODEL] [-e EFFORT] [-d DIR] "task description"
 #     -c      continue the previous OpenCode session (follow-up instructions)
 #     -m      model ID for this task (one of BYOK_MODEL / BYOK_SMALL_MODEL / BYOK_EXTRA_MODELS)
+#     -e      reasoning effort for this task (low | medium | high | xhigh | max); default BYOK_REASONING_EFFORT
 #     -d DIR  working directory (default: current directory)
 #
 # Model/API come from BYOK_PROVIDER, BYOK_BASE_URL, BYOK_MODEL, BYOK_API_KEY.
@@ -96,16 +109,17 @@ cat > "/usr/local/bin/oc-agent" <<'__CLOUD_AGENT_EOF__'
 set -uo pipefail
 
 cont=() model=() dir="$PWD"
-while getopts "cm:d:h" o; do
+while getopts "cm:e:d:h" o; do
   case "$o" in
     c) cont=(--continue) ;;
     m) model=(--model "byok/$OPTARG") ;;
+    e) export BYOK_REASONING_EFFORT="$OPTARG" ;;
     d) dir="$OPTARG" ;;
-    *) sed -n '2,11p' "$0"; exit 2 ;;
+    *) sed -n '2,12p' "$0"; exit 2 ;;
   esac
 done
 shift $((OPTIND - 1))
-[ $# -gt 0 ] || { sed -n '2,11p' "$0"; exit 2; }
+[ $# -gt 0 ] || { sed -n '2,12p' "$0"; exit 2; }
 
 for v in BYOK_MODEL BYOK_API_KEY; do
   if [ -z "${!v:-}" ]; then
@@ -120,7 +134,7 @@ cfg="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.json"
 mkdir -p /tmp/oc-agent
 log="/tmp/oc-agent/$(date +%Y%m%d-%H%M%S).log"
 cd "$dir" || exit 2
-echo "oc-agent: model=${model[1]:-byok/$BYOK_MODEL} dir=$dir log=$log" >&2
+echo "oc-agent: model=${model[1]:-byok/$BYOK_MODEL} effort=${BYOK_REASONING_EFFORT:-model-default} dir=$dir log=$log" >&2
 
 opencode run "${cont[@]}" "${model[@]}" "$*" 2>&1 | sed -r 's/\x1b\[[0-9;]*[A-Za-z]//g' > "$log"
 rc=${PIPESTATUS[0]}
@@ -285,6 +299,8 @@ This session runs on a cheap model on purpose. You are a relay: the real coding 
    conversation use `oc-agent -c -d ... "<follow-up>"`.
    If the user names a model (e.g. "用 spark"), add `-m <model id>`; the configured IDs are in
    `$BYOK_MODEL`, `$BYOK_SMALL_MODEL` and `$BYOK_EXTRA_MODELS` (`echo` of these three is fine, they're not secrets).
+   If the user asks for a reasoning level ("推理 high", "用 max", "低推理" ...), add `-e <level>`
+   (minimal | low | medium | high | xhigh | max); otherwise leave it out so BYOK_REASONING_EFFORT applies.
    If oc-agent exits 3 (missing BYOK_* variable), tell the user to add it in the environment settings.
 3. Verify cheaply yourself:
    - `git -C /home/user/<repo> fetch -q && git -C /home/user/<repo> log -1 --format='%H %s' origin/<branch>`

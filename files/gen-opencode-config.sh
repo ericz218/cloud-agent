@@ -8,6 +8,8 @@
 #   BYOK_MODEL      model ID sent to the API, e.g. claude-sonnet-4-5, gpt-5, deepseek/deepseek-chat
 #   BYOK_SMALL_MODEL   optional cheaper model for titles/summaries (defaults to BYOK_MODEL)
 #   BYOK_EXTRA_MODELS  optional comma-separated extra model IDs selectable in the UI
+#   BYOK_REASONING_EFFORT  optional reasoning level sent with every request, e.g. low | medium | high | xhigh | max
+#                      (openai / openrouter / openai-compatible; ignored for anthropic)
 set -euo pipefail
 
 out="${1:?usage: gen-opencode-config.sh <output.json>}"
@@ -28,6 +30,16 @@ base_url="${BYOK_BASE_URL:-$default_url}"
 
 models_csv="$model,$small${BYOK_EXTRA_MODELS:+,$BYOK_EXTRA_MODELS}"
 
+effort="${BYOK_REASONING_EFFORT:-}"
+model_options='{}'
+if [ -n "$effort" ]; then
+  case "$provider" in
+    anthropic)  echo "gen-opencode-config: BYOK_REASONING_EFFORT is ignored for anthropic" >&2 ;;
+    openrouter) model_options="$(jq -nc --arg e "$effort" '{reasoning: {effort: $e}}')" ;;
+    *)          model_options="$(jq -nc --arg e "$effort" '{reasoningEffort: $e}')" ;;
+  esac
+fi
+
 render_mcp_enabled=false
 [ -n "${RENDER_API_KEY:-}" ] && render_mcp_enabled=true
 
@@ -35,7 +47,7 @@ mkdir -p "$(dirname "$out")"
 jq -n \
   --arg npm "$npm" --arg kind "$provider" --arg url "$base_url" \
   --arg model "$model" --arg small "$small" --arg models "$models_csv" \
-  --argjson render "$render_mcp_enabled" \
+  --argjson render "$render_mcp_enabled" --argjson mopts "$model_options" \
   '{
     "$schema": "https://opencode.ai/config.json",
     autoupdate: false,
@@ -49,7 +61,7 @@ jq -n \
         name: ("BYOK (" + $kind + ")"),
         options: { baseURL: $url, apiKey: "{env:BYOK_API_KEY}" },
         models: ($models | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))
-                 | unique | map({key: ., value: {name: .}}) | from_entries)
+                 | unique | map({key: ., value: ({name: .} + (if $mopts == {} then {} else {options: $mopts} end))}) | from_entries)
       }
     },
     permission: {

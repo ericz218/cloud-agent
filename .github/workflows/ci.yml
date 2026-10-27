@@ -26,3 +26,5 @@ jobs:
         run: |
           BYOK_PROVIDER=openrouter BYOK_MODEL=a/b BYOK_EXTRA_MODELS="c, d" files/gen-opencode-config.sh /tmp/oc.json
           jq -e '.model == "byok/a/b" and (.provider.byok.models | keys == ["a/b","c","d"]) and .provider.byok.options.apiKey == "{env:BYOK_API_KEY}"' /tmp/oc.json
+          BYOK_BASE_URL=https://x/v1 BYOK_MODEL=m BYOK_REASONING_EFFORT=high files/gen-opencode-config.sh /tmp/oc2.json
+          jq -e '.provider.byok.models.m.options.reasoningEffort == "high"' /tmp/oc2.json
