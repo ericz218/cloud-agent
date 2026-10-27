@@ -66,6 +66,7 @@ jq -n \
     },
     permission: {
       edit: "allow",
+      external_directory: "allow",
       webfetch: "allow",
       bash: { "*": "allow", "git push --force*": "deny", "git push -f*": "deny", "git push * --force*": "deny", "rm -rf /*": "deny" }
     },
