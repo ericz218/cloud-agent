@@ -1,0 +1,30 @@
+# Render Blueprint for the cloud coding agent.
+# New → Blueprint → pick this repo. Render asks for every `sync: false` value
+# once and stores it encrypted; nothing secret is kept in this repo.
+services:
+  - type: web
+    name: cloud-agent
+    runtime: docker
+    plan: 1c-2g            # 1 CPU / 2 GB. 0.5c-512mb is too small for npm/pip builds.
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    autoDeployTrigger: commit
+    disk:
+      name: agent-data
+      mountPath: /data
+      sizeGB: 10
+    envVars:
+      - key: OPENCODE_SERVER_PASSWORD   # web UI password (user name: opencode)
+        generateValue: true
+      - key: BYOK_PROVIDER              # anthropic | openai | openrouter | openai-compatible
+        sync: false
+      - key: BYOK_BASE_URL              # e.g. https://openrouter.ai/api/v1 (may be blank for anthropic/openai/openrouter)
+        sync: false
+      - key: BYOK_MODEL                 # model ID exactly as the API expects it
+        sync: false
+      - key: BYOK_API_KEY
+        sync: false
+      - key: GH_TOKEN                   # GitHub classic PAT with scopes: repo, workflow
+        sync: false
+      - key: RENDER_API_KEY             # Render → Account settings → API keys
+        sync: false
