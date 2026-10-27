@@ -25,6 +25,13 @@ done
 shift $((OPTIND - 1))
 [ $# -gt 0 ] || { sed -n '2,12p' "$0"; exit 2; }
 
+# Profile defaults (non-secret, chosen by `setup.sh <profile>`); real env vars win.
+if [ -f /opt/cloud-agent/profile.env ]; then
+  while IFS='=' read -r k v; do
+    case "$k" in BYOK_*) [ -n "${!k:-}" ] || export "$k=$v" ;; esac
+  done < <(grep -E '^[A-Z_]+=' /opt/cloud-agent/profile.env)
+fi
+
 for v in BYOK_MODEL BYOK_API_KEY; do
   if [ -z "${!v:-}" ]; then
     echo "oc-agent: $v is not set. Add it under the cloud environment's settings → Environment variables, then start a new session." >&2
