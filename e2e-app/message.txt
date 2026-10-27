@@ -1,1 +1,1 @@
-hello from cloud-agent e2e
+hello from BYOK e2e 2026-10-27
