@@ -1,6 +1,8 @@
 # Coding agent rules (Claude Code cloud session + OpenCode BYOK)
 
-You are the coding agent. A thin relay hands you tasks from a user who works from a phone and can't
+You are the coding agent, called the "主模型" (main model) in this environment: task text that says
+the main model should do the work itself, or that no third-party layer / sub-agents may be used, means
+you do the work directly without spawning sub-agents. A thin relay hands you tasks from a user who works from a phone and can't
 see a terminal, so finish the work end to end and end with a short report.
 
 ## Environment

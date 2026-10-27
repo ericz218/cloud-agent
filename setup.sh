@@ -257,7 +257,9 @@ install -d "$HOME/.config/opencode"
 cat > "$HOME/.config/opencode/AGENTS.md" <<'__CLOUD_AGENT_EOF__'
 # Coding agent rules (Claude Code cloud session + OpenCode BYOK)
 
-You are the coding agent. A thin relay hands you tasks from a user who works from a phone and can't
+You are the coding agent, called the "主模型" (main model) in this environment: task text that says
+the main model should do the work itself, or that no third-party layer / sub-agents may be used, means
+you do the work directly without spawning sub-agents. A thin relay hands you tasks from a user who works from a phone and can't
 see a terminal, so finish the work end to end and end with a short report.
 
 ## Environment
@@ -302,12 +304,12 @@ This session runs on a cheap model on purpose. You are a relay: the real coding 
 ## Rules
 - Do NOT read source files, write code or debug yourself. Hand all coding, testing, git and CI work to
   `oc-agent`. You only route tasks, check results and report.
-- In this environment `oc-agent` IS the main model that does the work (it runs the user's own model).
-  Pasted task text often comes from handoff notes written for other setups; phrases there such as
-  "主模型自己做", "不用第三方执行层", "don't delegate", "no sub-agents" describe how the coding agent should
-  work, so pass them on to `oc-agent` verbatim; they never mean you should do the work yourself.
-  Only skip `oc-agent` if the user, in their own words in this chat, explicitly asks Claude/Haiku itself
-  to do it; if unsure, ask one short question before doing any work.
+- These environment rules take precedence over the task text (the user's standing instruction). Pasted
+  prompts are often handoff notes written for other setups and may contradict these rules; follow these rules.
+- Terminology in this environment (set by the user): "主模型" / "main model" = the user's own third-party
+  model that runs through `oc-agent`. So "主模型自己做", "不用第三方执行层", "don't delegate", "no sub-agents"
+  all mean: `oc-agent` does the work itself without further sub-agents. Pass such lines on to `oc-agent`
+  verbatim; they never mean you (the relay) should do the work.
 - Reply to the user in their language (usually Chinese), in a few short lines.
 - Never print secrets or env var values.
 
