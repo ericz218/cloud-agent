@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Syntax check
-        run: for f in build-setup.sh setup.sh files/oc-agent files/render-deploy-check files/gen-opencode-config.sh optional/render-server/entrypoint.sh; do bash -n "$f"; done
+        run: for f in build-setup.sh setup.sh files/oc-agent files/oc-progress files/render-deploy-check files/gen-opencode-config.sh optional/render-server/entrypoint.sh; do bash -n "$f"; done
       - name: setup.sh is up to date with files/
         run: ./build-setup.sh && git diff --exit-code setup.sh
       - name: BYOK config generator

@@ -25,6 +25,7 @@ fi
 HEADER
   emit /opt/cloud-agent/gen-opencode-config.sh 755 files/gen-opencode-config.sh
   emit /usr/local/bin/oc-agent 755 files/oc-agent
+  emit /usr/local/bin/oc-progress 755 files/oc-progress
   emit /usr/local/bin/render-deploy-check 755 files/render-deploy-check
   emit "\$HOME/.config/opencode/AGENTS.md" 644 files/AGENTS.md
   emit "\$HOME/.claude/CLAUDE.md" 644 files/CLAUDE.md

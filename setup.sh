@@ -167,14 +167,18 @@ echo "oc-agent: model=${model[1]:-byok/$BYOK_MODEL} effort=${BYOK_REASONING_EFFO
 # killed and retried.
 export OPENCODE_DISABLE_MODELS_FETCH=1 OPENCODE_DISABLE_AUTOUPDATE=1
 start_timeout="${OC_AGENT_START_TIMEOUT:-120}"
-raw="$log.raw" dbg="$log.debug"
+raw="$log.raw"
+# Live view for oc-progress: the run currently (or most recently) in progress.
+ln -sfn "$raw" /tmp/oc-agent/current.raw
+printf '%s %s %s\n' "$$" "$(date +%s)" "${model[1]:-byok/$BYOK_MODEL}" > /tmp/oc-agent/current.info
 rc=4
 for attempt in 1 2 3; do
-  opencode run --print-logs --log-level INFO "${cont[@]}" "${model[@]}" "$*" >"$raw" 2>"$dbg" </dev/null &
+  # One stream so progress and tool steps stay in order; log lines are filtered out when shown.
+  opencode run --print-logs --log-level INFO "${cont[@]}" "${model[@]}" "$*" >"$raw" 2>&1 </dev/null &
   pid=$!
   started=0
   for _ in $(seq 1 "$start_timeout"); do
-    if grep -q 'message=loop' "$dbg"; then started=1; break; fi
+    if grep -q 'message=loop' "$raw"; then started=1; break; fi
     kill -0 "$pid" 2>/dev/null || break
     sleep 1
   done
@@ -186,14 +190,37 @@ for attempt in 1 2 3; do
   wait "$pid"; rc=$?
   break
 done
-[ "$rc" != 4 ] || echo "oc-agent: opencode failed to start 3 times; see $dbg" >&2
-{ cat "$raw"; grep -v '^timestamp=' "$dbg"; } | sed -r 's/\x1b\[[0-9;]*[A-Za-z]//g' > "$log"
+[ "$rc" != 4 ] || echo "oc-agent: opencode failed to start 3 times; see $raw" >&2
+grep -v '^timestamp=' "$raw" | sed -r 's/\x1b\[[0-9;]*[A-Za-z]//g' > "$log"
 
 echo "---- oc-agent exit=$rc, $(wc -l < "$log") log lines, last 80: ----"
 tail -n 80 "$log"
 exit "$rc"
 __CLOUD_AGENT_EOF__
 chmod 755 "/usr/local/bin/oc-agent"
+
+install -d "/usr/local/bin"
+cat > "/usr/local/bin/oc-progress" <<'__CLOUD_AGENT_EOF__'
+#!/usr/bin/env bash
+# Show what the BYOK agent (oc-agent) is doing right now: status plus the last
+# N lines of its live output (default 40), with terminal colour codes removed.
+#
+#   oc-progress [N]
+set -uo pipefail
+n="${1:-40}"
+info=/tmp/oc-agent/current.info
+raw=/tmp/oc-agent/current.raw
+if [ ! -e "$raw" ] || [ ! -f "$info" ]; then
+  echo "oc-progress: no oc-agent run yet in this session"; exit 1
+fi
+read -r pid started model < "$info"
+mins=$(( ($(date +%s) - started) / 60 ))
+if kill -0 "$pid" 2>/dev/null; then state="running for ${mins} min"; else state="finished (started ${mins} min ago)"; fi
+echo "oc-agent: $state, model $model, $(grep -vc '^timestamp=' "$raw") output lines"
+echo "----"
+grep -v '^timestamp=' "$raw" | tail -n "$n" | sed -r 's/\x1b\[[0-9;]*[A-Za-z]//g'
+__CLOUD_AGENT_EOF__
+chmod 755 "/usr/local/bin/oc-progress"
 
 install -d "/usr/local/bin"
 cat > "/usr/local/bin/render-deploy-check" <<'__CLOUD_AGENT_EOF__'
@@ -368,8 +395,16 @@ This session runs on a cheap model on purpose. You are a relay: the real coding 
    Don't add your own commit-attribution lines (Co-Authored-By / Claude-Session) to the task text: the
    commits are made by oc-agent with the user's model, not by you.
    If oc-agent exits 4 (OpenCode failed to start), run the same command once more; if it fails again,
-   tell the user and quote the last lines of the `.debug` log it names.
+   tell the user and quote the last lines of the `.raw` log it names.
    If oc-agent exits 3 (missing BYOK_* variable), tell the user to add it in the environment settings.
+   Showing the main model's output (the user wants to see it, not just your summary):
+   - Right after starting, tell the user it is running and that they can say "看输出" any time.
+   - When the user asks for output/progress ("看输出", "进度", "show output"), run `oc-progress` (or
+     `oc-progress 100` for more) and paste its output verbatim in a code block. Don't summarize it.
+   - While a run lasts longer than ~5 minutes, post an update every ~5 minutes: wait with a background
+     `sleep 300` (Bash, run_in_background), then run `oc-progress 15` and paste it verbatim.
+   - When oc-agent finishes, first paste the main model's own final report verbatim (the last message
+     in the printed tail, after its last tool step) under the heading "主模型输出", then your checks.
 3. Verify cheaply yourself:
    - `git -C /home/user/<repo> fetch -q && git -C /home/user/<repo> log -1 --format='%H %s' origin/<branch>`
      matches the SHA oc-agent reported.

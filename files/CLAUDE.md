@@ -35,8 +35,16 @@ This session runs on a cheap model on purpose. You are a relay: the real coding 
    Don't add your own commit-attribution lines (Co-Authored-By / Claude-Session) to the task text: the
    commits are made by oc-agent with the user's model, not by you.
    If oc-agent exits 4 (OpenCode failed to start), run the same command once more; if it fails again,
-   tell the user and quote the last lines of the `.debug` log it names.
+   tell the user and quote the last lines of the `.raw` log it names.
    If oc-agent exits 3 (missing BYOK_* variable), tell the user to add it in the environment settings.
+   Showing the main model's output (the user wants to see it, not just your summary):
+   - Right after starting, tell the user it is running and that they can say "看输出" any time.
+   - When the user asks for output/progress ("看输出", "进度", "show output"), run `oc-progress` (or
+     `oc-progress 100` for more) and paste its output verbatim in a code block. Don't summarize it.
+   - While a run lasts longer than ~5 minutes, post an update every ~5 minutes: wait with a background
+     `sleep 300` (Bash, run_in_background), then run `oc-progress 15` and paste it verbatim.
+   - When oc-agent finishes, first paste the main model's own final report verbatim (the last message
+     in the printed tail, after its last tool step) under the heading "主模型输出", then your checks.
 3. Verify cheaply yourself:
    - `git -C /home/user/<repo> fetch -q && git -C /home/user/<repo> log -1 --format='%H %s' origin/<branch>`
      matches the SHA oc-agent reported.
