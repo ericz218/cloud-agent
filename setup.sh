@@ -124,11 +124,16 @@ done
 shift $((OPTIND - 1))
 [ $# -gt 0 ] || { sed -n '2,12p' "$0"; exit 2; }
 
-# Profile defaults (non-secret, chosen by `setup.sh <profile>`); real env vars win.
-if [ -f /opt/cloud-agent/profile.env ]; then
+# Profile defaults (non-secret): the one chosen by `setup.sh <profile>`, else the
+# profile whose BYOK_BASE_URL matches the configured one. Real env vars win.
+profile=/opt/cloud-agent/profile.env
+if [ ! -f "$profile" ] && [ -n "${BYOK_BASE_URL:-}" ]; then
+  profile="$(grep -lxF "BYOK_BASE_URL=${BYOK_BASE_URL%/}" /opt/cloud-agent/profiles/*.env 2>/dev/null | head -n 1)"
+fi
+if [ -n "$profile" ] && [ -f "$profile" ]; then
   while IFS='=' read -r k v; do
     case "$k" in BYOK_*) [ -n "${!k:-}" ] || export "$k=$v" ;; esac
-  done < <(grep -E '^[A-Z_]+=' /opt/cloud-agent/profile.env)
+  done < <(grep -E '^[A-Z_]+=' "$profile")
 fi
 
 for v in BYOK_MODEL BYOK_API_KEY; do
@@ -335,6 +340,7 @@ BYOK_PROVIDER=openai-compatible
 BYOK_BASE_URL=https://api.meta.ai/v1
 BYOK_MODEL=muse-wonder-1.0
 BYOK_EXTRA_MODELS=muse-spark-1.3
+BYOK_REASONING_EFFORT=high
 __CLOUD_AGENT_EOF__
 chmod 644 "/opt/cloud-agent/profiles/muse.env"
 
