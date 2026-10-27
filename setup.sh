@@ -111,11 +111,11 @@ cat > "/usr/local/bin/oc-agent" <<'__CLOUD_AGENT_EOF__'
 # the calling (relay) model reads as little as possible.
 set -uo pipefail
 
-cont=() model=() dir="$PWD"
+cont=() model=() pick="" dir="$PWD"
 while getopts "cm:e:d:h" o; do
   case "$o" in
     c) cont=(--continue) ;;
-    m) model=(--model "byok/$OPTARG") ;;
+    m) model=(--model "byok/$OPTARG"); pick="$OPTARG" ;;
     e) export BYOK_REASONING_EFFORT="$OPTARG" ;;
     d) dir="$OPTARG" ;;
     *) sed -n '2,12p' "$0"; exit 2 ;;
@@ -142,6 +142,15 @@ for v in BYOK_MODEL BYOK_API_KEY; do
     exit 3
   fi
 done
+
+# A model picked with -m is always selectable, even if it is not in the configured lists.
+[ -z "$pick" ] || export BYOK_EXTRA_MODELS="${BYOK_EXTRA_MODELS:+$BYOK_EXTRA_MODELS,}$pick"
+
+# Meta's *-contributor models reject reasoning effort "max"; use the next level down.
+if [ "${BYOK_REASONING_EFFORT:-}" = "max" ] && [[ "${model[1]:-byok/$BYOK_MODEL}" == *-contributor ]]; then
+  echo "oc-agent: ${model[1]:-$BYOK_MODEL} does not support effort max, using xhigh" >&2
+  export BYOK_REASONING_EFFORT=xhigh
+fi
 
 cfg="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.json"
 /opt/cloud-agent/gen-opencode-config.sh "$cfg" || exit 3
@@ -353,7 +362,7 @@ cat > "/opt/cloud-agent/profiles/muse.env" <<'__CLOUD_AGENT_EOF__'
 BYOK_PROVIDER=openai-compatible
 BYOK_BASE_URL=https://api.meta.ai/v1
 BYOK_MODEL=muse-wonder-1.0
-BYOK_EXTRA_MODELS=muse-spark-1.3
+BYOK_EXTRA_MODELS=muse-spark-1.3-contributor
 BYOK_REASONING_EFFORT=high
 __CLOUD_AGENT_EOF__
 chmod 644 "/opt/cloud-agent/profiles/muse.env"
