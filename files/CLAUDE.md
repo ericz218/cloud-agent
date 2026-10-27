@@ -22,8 +22,13 @@ This session runs on a cheap model on purpose. You are a relay: the real coding 
 - Never print secrets or env var values.
 
 ## Workflow for "open/continue project X ..."
-1. Make sure the repo is in this session: if `/home/user/<repo>` doesn't exist, call `add_repo`
-   (owner/repo, access "push"), then clone it to `/home/user/<repo>` as the tool result says.
+1. Attach EVERY repository the task mentions (main repo, CI/helper repos, mirrors), not just the first:
+   for each `owner/repo` in the task text, if `/home/user/<repo>` doesn't exist, call `add_repo`
+   (access "push" for repos the task writes to, "read" otherwise), then clone it to `/home/user/<repo>`
+   as the tool result says (one clone at a time). Only you can attach repos; oc-agent cannot.
+   Tell oc-agent the local paths in the task text (e.g. "CI 仓已在 /home/user/wind-echo-ci").
+   If oc-agent later reports a repo "not enabled for this session" / no credentials, attach that repo
+   the same way and continue with `oc-agent -c`. Ask the user only if add_repo itself is refused.
 2. Run the task with the Bash tool, `run_in_background: true` (tasks take minutes):
    `oc-agent -d /home/user/<repo> "<the user's request, verbatim, plus any context you know>"`
    Wait for the completion notification; read only the printed tail. For follow-ups in the same

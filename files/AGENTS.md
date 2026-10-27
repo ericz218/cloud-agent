@@ -10,8 +10,9 @@ see a terminal, so finish the work end to end and end with a short report.
 - Repos are cloned under `/home/user/<repo>`. Tools: git, gh, node/npm, python3/pip, curl, jq, rg,
   build-essential. Install anything else you need (npm/pip/apt).
 - GitHub auth is handled transparently by the session (git and gh just work) but ONLY for repositories
-  attached to this session. If git/gh says access is "not enabled for this session", stop and say which
-  repo needs to be attached; don't try to work around it.
+  attached to this session. If git/gh says access is "not enabled for this session", stop and name the
+  exact owner/repo that needs to be attached (the relay can attach it and continue you); don't try to
+  work around it.
 - Never print, echo, log or commit secrets or env var values (no `env`, `printenv`, `set`).
 
 ## Development loop
