@@ -22,6 +22,7 @@ cat > "/opt/cloud-agent/gen-opencode-config.sh" <<'__CLOUD_AGENT_EOF__'
 #   BYOK_MODEL      model ID sent to the API, e.g. claude-sonnet-4-5, gpt-5, deepseek/deepseek-chat
 #   BYOK_SMALL_MODEL   optional cheaper model for titles/summaries (defaults to BYOK_MODEL)
 #   BYOK_EXTRA_MODELS  optional comma-separated extra model IDs selectable in the UI
+#   BYOK_SUBAGENT_MODEL  optional model ID for general/explore agents (falls back to first 'contributor' in BYOK_EXTRA_MODELS; unset = no agent override)
 #   BYOK_REASONING_EFFORT  optional reasoning level sent with every request, e.g. low | medium | high | xhigh | max
 #                      (openai / openrouter / openai-compatible; ignored for anthropic)
 set -euo pipefail
@@ -42,6 +43,12 @@ esac
 base_url="${BYOK_BASE_URL:-$default_url}"
 [ -n "$base_url" ] || { echo "gen-opencode-config: BYOK_BASE_URL is required for $provider" >&2; exit 1; }
 
+subagent_model="${BYOK_SUBAGENT_MODEL:-}"
+if [ -z "$subagent_model" ] && [ -n "${BYOK_EXTRA_MODELS:-}" ]; then
+  subagent_model="$(jq -rn --arg csv "$BYOK_EXTRA_MODELS" \
+    '[$csv | split(",")[] | gsub("^\\s+|\\s+$"; "") | select(length > 0) | select(ascii_downcase | contains("contributor"))][0] // empty')"
+fi
+
 models_csv="$model,$small${BYOK_EXTRA_MODELS:+,$BYOK_EXTRA_MODELS}"
 
 effort="${BYOK_REASONING_EFFORT:-}"
@@ -61,6 +68,7 @@ mkdir -p "$(dirname "$out")"
 jq -n \
   --arg npm "$npm" --arg kind "$provider" --arg url "$base_url" \
   --arg model "$model" --arg small "$small" --arg models "$models_csv" \
+  --arg subagent "$subagent_model" \
   --argjson render "$render_mcp_enabled" --argjson mopts "$model_options" \
   '{
     "$schema": "https://opencode.ai/config.json",
@@ -93,6 +101,66 @@ jq -n \
       }
     }
   }' > "$out"
+
+# Merge sub-agent model override + AGENTS.md instructions into any existing
+# config (preserving unknown/user fields); create a minimal config if needed.
+cfg_dir="$(dirname "$out")"
+agents_md="$cfg_dir/AGENTS.md"
+if [ -n "$subagent_model" ]; then
+  case "$subagent_model" in byok/*) subagent_ref="$subagent_model" ;; *) subagent_ref="byok/$subagent_model" ;; esac
+else
+  subagent_ref=""
+fi
+SUBAGENT_REF="$subagent_ref" AGENTS_MD="$agents_md" python3 - "$out" <<'PYEOF'
+import json, os, sys
+
+path = sys.argv[1]
+subagent = os.environ.get("SUBAGENT_REF", "")
+agents_md = os.environ.get("AGENTS_MD", "")
+
+try:
+    with open(path, encoding="utf-8") as f:
+        cfg = json.load(f)
+    if not isinstance(cfg, dict):
+        cfg = {}
+except (FileNotFoundError, json.JSONDecodeError, OSError):
+    # Config just rendered above (or missing): re-read if possible, else start empty.
+    cfg = {}
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                cfg = json.load(f)
+            if not isinstance(cfg, dict):
+                cfg = {}
+        except (json.JSONDecodeError, OSError):
+            cfg = {}
+
+if subagent:
+    agent = cfg.get("agent")
+    if not isinstance(agent, dict):
+        agent = {}
+    for name in ("general", "explore"):
+        entry = agent.get(name)
+        if not isinstance(entry, dict):
+            entry = {}
+        entry["model"] = subagent
+        agent[name] = entry
+    cfg["agent"] = agent
+
+if agents_md:
+    instructions = cfg.get("instructions")
+    if not isinstance(instructions, list):
+        instructions = [instructions] if instructions else []
+    if agents_md not in instructions:
+        instructions.append(agents_md)
+    cfg["instructions"] = instructions
+
+tmp = path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as f:
+    json.dump(cfg, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+os.replace(tmp, path)
+PYEOF
 __CLOUD_AGENT_EOF__
 chmod 755 "/opt/cloud-agent/gen-opencode-config.sh"
 
@@ -323,6 +391,7 @@ You are the coding agent, called the "主模型" (main model) in this environmen
 the main model should do the work itself, or that no third-party layer / sub-agents may be used, means
 you do the work directly without spawning sub-agents. A thin relay hands you tasks from a user who works from a phone and can't
 see a terminal, so finish the work end to end and end with a short report.
+For routine tasks, dispatch by default per the Task dispatch section below; do everything yourself only when the task text explicitly says the main model must do it personally / no sub-agents.
 
 ## Environment
 - Ephemeral Linux container: anything not pushed to GitHub is lost when the session ends.
@@ -354,8 +423,72 @@ logs (exit 0 = HEAD is live). Otherwise skip Render; the relay checks it.
 ## Report (last message, short)
 Changed files (`git diff --stat`), branch, pushed commit SHA (full), test result, CI result, Render result
 if checked, anything blocked.
+
+## Task dispatch
+- The 主模型 (you, the decision model running in oc-agent) is the decision model; it also directly executes a small number of high-difficulty tasks itself.
+- On receiving a task, first split it and decide which parts to do yourself and which to dispatch to sub-agents; do not default to doing everything yourself.
+- Dispatch independent small tasks to sub-agents (agent types `general` / `explore`) in parallel, with no concurrency limit; split work by file so multiple sub-agents never edit the same file.
+- Sub-agents always use the contributor execution model (fixed in `opencode.json` under `agent.general` / `agent.explore`); never specify another model when dispatching.
+- Pick the reasoning level dynamically by task difficulty: low for simple lookups / mechanical edits, medium for ordinary implementation, high for complex / security-related work; state the expected thinking depth explicitly in each sub-agent's task description.
+- High-difficulty, security-sensitive, and cross-file design tasks are done by the 主模型 itself, not dispatched.
+- The 主模型 independently reviews sub-agent results (read the diff, run tests) before submitting; never submit unreviewed results.
 __CLOUD_AGENT_EOF__
 chmod 644 "$HOME/.config/opencode/AGENTS.md"
+
+# Merge sub-agent model override + AGENTS.md into instructions of the (possibly
+# pre-existing / just-generated) opencode.json, preserving all other fields.
+# Idempotent; prints no secrets (model names only).
+cfg="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.json"
+agents_md="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/AGENTS.md"
+subagent_model="${BYOK_SUBAGENT_MODEL:-}"
+if [ -z "$subagent_model" ] && [ -n "${BYOK_EXTRA_MODELS:-}" ]; then
+  subagent_model="$(jq -rn --arg csv "$BYOK_EXTRA_MODELS" \
+    '[$csv | split(",")[] | gsub("^\\s+|\\s+$"; "") | select(length > 0) | select(ascii_downcase | contains("contributor"))][0] // empty')"
+fi
+if [ -n "$subagent_model" ]; then
+  case "$subagent_model" in byok/*) subagent_ref="$subagent_model" ;; *) subagent_ref="byok/$subagent_model" ;; esac
+else
+  subagent_ref=""
+fi
+mkdir -p "$(dirname "$cfg")"
+SUBAGENT_REF="$subagent_ref" AGENTS_MD="$agents_md" OPENC_CFG="$cfg" python3 - <<'__PYEOF__'
+import json, os
+
+path = os.environ["OPENC_CFG"]
+subagent = os.environ.get("SUBAGENT_REF", "")
+agents_md = os.environ.get("AGENTS_MD", "")
+try:
+    with open(path, encoding="utf-8") as f:
+        cfg = json.load(f)
+    if not isinstance(cfg, dict):
+        cfg = {}
+except (FileNotFoundError, json.JSONDecodeError, OSError):
+    cfg = {}
+if subagent:
+    agent = cfg.get("agent")
+    if not isinstance(agent, dict):
+        agent = {}
+    for name in ("general", "explore"):
+        entry = agent.get(name)
+        if not isinstance(entry, dict):
+            entry = {}
+        entry["model"] = subagent
+        agent[name] = entry
+    cfg["agent"] = agent
+if agents_md:
+    instructions = cfg.get("instructions")
+    if not isinstance(instructions, list):
+        instructions = [instructions] if instructions else []
+    if agents_md not in instructions:
+        instructions.append(agents_md)
+    cfg["instructions"] = instructions
+tmp = path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as f:
+    json.dump(cfg, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+os.replace(tmp, path)
+__PYEOF__
+
 
 install -d "$HOME/.claude"
 cat > "$HOME/.claude/CLAUDE.md" <<'__CLOUD_AGENT_EOF__'
@@ -391,9 +524,20 @@ This session runs on a cheap model on purpose. You are a relay: the real coding 
    If oc-agent later reports a repo "not enabled for this session" / no credentials, attach that repo
    the same way and continue with `oc-agent -c`. Ask the user only if add_repo itself is refused.
 2. Run the task with the Bash tool, `run_in_background: true` (tasks take minutes):
-   `oc-agent -d /home/user/<repo> "<the user's request, verbatim, plus any context you know>"`
-   Wait for the completion notification; read only the printed tail. For follow-ups in the same
-   conversation use `oc-agent -c -d ... "<follow-up>"`.
+   New task = new session: by default run `oc-agent -d /home/user/<repo> "<task>"` WITHOUT `-c`.
+   A new, independent task must never use `-c`, so stale context and old dispatch state cannot leak
+   into it. Only use `oc-agent -c -d ... "<follow-up>"` when the user is making a small follow-up
+   in the same context (补充/修正上一条: adding to or correcting the immediately preceding task).
+   In the task text, always append the dispatch instruction（每次发任务时附上一句，大意）：
+   "先拆分，互不依赖部分必须派给子 agent 并行，主模型只做决策/高难度/复核"
+   ("First split the task; independent parts must go to sub-agents in parallel; the main model
+   only does decisions, hard parts and review.")
+   Exception — small jobs (小活： change a line or two, run one command, answer a small question):
+   the main model may do it directly; in that case write in the task text
+   "小活，你直接做，不用派子 agent" and the dispatch instruction above is not needed.
+   (Per "Terminology" in Rules, "不用派子 agent" here means oc-agent itself does the work without
+   further sub-agents.)
+   Wait for the completion notification; read only the printed tail.
    If the user names a model (e.g. "用 spark"), add `-m <model id>`; the configured IDs are in
    `$BYOK_MODEL`, `$BYOK_SMALL_MODEL` and `$BYOK_EXTRA_MODELS` (`echo` of these three is fine, they're not secrets).
    If the user asks for a reasoning level ("推理 high", "用 max", "低推理" ...), add `-e <level>`

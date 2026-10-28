@@ -28,6 +28,63 @@ HEADER
   emit /usr/local/bin/oc-progress 755 files/oc-progress
   emit /usr/local/bin/render-deploy-check 755 files/render-deploy-check
   emit "\$HOME/.config/opencode/AGENTS.md" 644 files/AGENTS.md
+  cat <<'MERGE'
+
+# Merge sub-agent model override + AGENTS.md into instructions of the (possibly
+# pre-existing / just-generated) opencode.json, preserving all other fields.
+# Idempotent; prints no secrets (model names only).
+cfg="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.json"
+agents_md="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/AGENTS.md"
+subagent_model="${BYOK_SUBAGENT_MODEL:-}"
+if [ -z "$subagent_model" ] && [ -n "${BYOK_EXTRA_MODELS:-}" ]; then
+  subagent_model="$(jq -rn --arg csv "$BYOK_EXTRA_MODELS" \
+    '[$csv | split(",")[] | gsub("^\\s+|\\s+$"; "") | select(length > 0) | select(ascii_downcase | contains("contributor"))][0] // empty')"
+fi
+if [ -n "$subagent_model" ]; then
+  case "$subagent_model" in byok/*) subagent_ref="$subagent_model" ;; *) subagent_ref="byok/$subagent_model" ;; esac
+else
+  subagent_ref=""
+fi
+mkdir -p "$(dirname "$cfg")"
+SUBAGENT_REF="$subagent_ref" AGENTS_MD="$agents_md" OPENC_CFG="$cfg" python3 - <<'__PYEOF__'
+import json, os
+
+path = os.environ["OPENC_CFG"]
+subagent = os.environ.get("SUBAGENT_REF", "")
+agents_md = os.environ.get("AGENTS_MD", "")
+try:
+    with open(path, encoding="utf-8") as f:
+        cfg = json.load(f)
+    if not isinstance(cfg, dict):
+        cfg = {}
+except (FileNotFoundError, json.JSONDecodeError, OSError):
+    cfg = {}
+if subagent:
+    agent = cfg.get("agent")
+    if not isinstance(agent, dict):
+        agent = {}
+    for name in ("general", "explore"):
+        entry = agent.get(name)
+        if not isinstance(entry, dict):
+            entry = {}
+        entry["model"] = subagent
+        agent[name] = entry
+    cfg["agent"] = agent
+if agents_md:
+    instructions = cfg.get("instructions")
+    if not isinstance(instructions, list):
+        instructions = [instructions] if instructions else []
+    if agents_md not in instructions:
+        instructions.append(agents_md)
+    cfg["instructions"] = instructions
+tmp = path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as f:
+    json.dump(cfg, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+os.replace(tmp, path)
+__PYEOF__
+
+MERGE
   emit "\$HOME/.claude/CLAUDE.md" 644 files/CLAUDE.md
   for f in profiles/*.env; do emit "/opt/cloud-agent/profiles/$(basename "$f")" 644 "$f"; done
   cat <<'PROFILE'

@@ -30,9 +30,20 @@ This session runs on a cheap model on purpose. You are a relay: the real coding 
    If oc-agent later reports a repo "not enabled for this session" / no credentials, attach that repo
    the same way and continue with `oc-agent -c`. Ask the user only if add_repo itself is refused.
 2. Run the task with the Bash tool, `run_in_background: true` (tasks take minutes):
-   `oc-agent -d /home/user/<repo> "<the user's request, verbatim, plus any context you know>"`
-   Wait for the completion notification; read only the printed tail. For follow-ups in the same
-   conversation use `oc-agent -c -d ... "<follow-up>"`.
+   New task = new session: by default run `oc-agent -d /home/user/<repo> "<task>"` WITHOUT `-c`.
+   A new, independent task must never use `-c`, so stale context and old dispatch state cannot leak
+   into it. Only use `oc-agent -c -d ... "<follow-up>"` when the user is making a small follow-up
+   in the same context (补充/修正上一条: adding to or correcting the immediately preceding task).
+   In the task text, always append the dispatch instruction（每次发任务时附上一句，大意）：
+   "先拆分，互不依赖部分必须派给子 agent 并行，主模型只做决策/高难度/复核"
+   ("First split the task; independent parts must go to sub-agents in parallel; the main model
+   only does decisions, hard parts and review.")
+   Exception — small jobs (小活： change a line or two, run one command, answer a small question):
+   the main model may do it directly; in that case write in the task text
+   "小活，你直接做，不用派子 agent" and the dispatch instruction above is not needed.
+   (Per "Terminology" in Rules, "不用派子 agent" here means oc-agent itself does the work without
+   further sub-agents.)
+   Wait for the completion notification; read only the printed tail.
    If the user names a model (e.g. "用 spark"), add `-m <model id>`; the configured IDs are in
    `$BYOK_MODEL`, `$BYOK_SMALL_MODEL` and `$BYOK_EXTRA_MODELS` (`echo` of these three is fine, they're not secrets).
    If the user asks for a reasoning level ("推理 high", "用 max", "低推理" ...), add `-e <level>`

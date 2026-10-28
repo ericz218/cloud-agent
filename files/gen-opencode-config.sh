@@ -8,6 +8,7 @@
 #   BYOK_MODEL      model ID sent to the API, e.g. claude-sonnet-4-5, gpt-5, deepseek/deepseek-chat
 #   BYOK_SMALL_MODEL   optional cheaper model for titles/summaries (defaults to BYOK_MODEL)
 #   BYOK_EXTRA_MODELS  optional comma-separated extra model IDs selectable in the UI
+#   BYOK_SUBAGENT_MODEL  optional model ID for general/explore agents (falls back to first 'contributor' in BYOK_EXTRA_MODELS; unset = no agent override)
 #   BYOK_REASONING_EFFORT  optional reasoning level sent with every request, e.g. low | medium | high | xhigh | max
 #                      (openai / openrouter / openai-compatible; ignored for anthropic)
 set -euo pipefail
@@ -28,6 +29,12 @@ esac
 base_url="${BYOK_BASE_URL:-$default_url}"
 [ -n "$base_url" ] || { echo "gen-opencode-config: BYOK_BASE_URL is required for $provider" >&2; exit 1; }
 
+subagent_model="${BYOK_SUBAGENT_MODEL:-}"
+if [ -z "$subagent_model" ] && [ -n "${BYOK_EXTRA_MODELS:-}" ]; then
+  subagent_model="$(jq -rn --arg csv "$BYOK_EXTRA_MODELS" \
+    '[$csv | split(",")[] | gsub("^\\s+|\\s+$"; "") | select(length > 0) | select(ascii_downcase | contains("contributor"))][0] // empty')"
+fi
+
 models_csv="$model,$small${BYOK_EXTRA_MODELS:+,$BYOK_EXTRA_MODELS}"
 
 effort="${BYOK_REASONING_EFFORT:-}"
@@ -47,6 +54,7 @@ mkdir -p "$(dirname "$out")"
 jq -n \
   --arg npm "$npm" --arg kind "$provider" --arg url "$base_url" \
   --arg model "$model" --arg small "$small" --arg models "$models_csv" \
+  --arg subagent "$subagent_model" \
   --argjson render "$render_mcp_enabled" --argjson mopts "$model_options" \
   '{
     "$schema": "https://opencode.ai/config.json",
@@ -79,3 +87,63 @@ jq -n \
       }
     }
   }' > "$out"
+
+# Merge sub-agent model override + AGENTS.md instructions into any existing
+# config (preserving unknown/user fields); create a minimal config if needed.
+cfg_dir="$(dirname "$out")"
+agents_md="$cfg_dir/AGENTS.md"
+if [ -n "$subagent_model" ]; then
+  case "$subagent_model" in byok/*) subagent_ref="$subagent_model" ;; *) subagent_ref="byok/$subagent_model" ;; esac
+else
+  subagent_ref=""
+fi
+SUBAGENT_REF="$subagent_ref" AGENTS_MD="$agents_md" python3 - "$out" <<'PYEOF'
+import json, os, sys
+
+path = sys.argv[1]
+subagent = os.environ.get("SUBAGENT_REF", "")
+agents_md = os.environ.get("AGENTS_MD", "")
+
+try:
+    with open(path, encoding="utf-8") as f:
+        cfg = json.load(f)
+    if not isinstance(cfg, dict):
+        cfg = {}
+except (FileNotFoundError, json.JSONDecodeError, OSError):
+    # Config just rendered above (or missing): re-read if possible, else start empty.
+    cfg = {}
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                cfg = json.load(f)
+            if not isinstance(cfg, dict):
+                cfg = {}
+        except (json.JSONDecodeError, OSError):
+            cfg = {}
+
+if subagent:
+    agent = cfg.get("agent")
+    if not isinstance(agent, dict):
+        agent = {}
+    for name in ("general", "explore"):
+        entry = agent.get(name)
+        if not isinstance(entry, dict):
+            entry = {}
+        entry["model"] = subagent
+        agent[name] = entry
+    cfg["agent"] = agent
+
+if agents_md:
+    instructions = cfg.get("instructions")
+    if not isinstance(instructions, list):
+        instructions = [instructions] if instructions else []
+    if agents_md not in instructions:
+        instructions.append(agents_md)
+    cfg["instructions"] = instructions
+
+tmp = path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as f:
+    json.dump(cfg, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+os.replace(tmp, path)
+PYEOF
